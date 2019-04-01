@@ -33,6 +33,7 @@ test_rebase_same_head success 'master'
 test_rebase_same_head success '--onto B B'
 test_rebase_same_head success '--onto B... B'
 test_rebase_same_head success '--onto master... master'
+test_rebase_same_head success '--keep-base master'
 
 test_expect_success 'add work to side' '
 	test_commit E
@@ -44,6 +45,7 @@ test_rebase_same_head success 'master'
 test_rebase_same_head success '--onto B B'
 test_rebase_same_head success '--onto B... B'
 test_rebase_same_head success '--onto master... master'
+test_rebase_same_head success '--keep-base master'
 
 test_expect_success 'add work to upstream' '
 	git checkout master &&
@@ -55,5 +57,6 @@ changes='our and their changes'
 test_rebase_same_head success '--onto B B'
 test_rebase_same_head success '--onto B... B'
 test_rebase_same_head success '--onto master... master'
+test_rebase_same_head success '--keep-base master'
 
 test_done
