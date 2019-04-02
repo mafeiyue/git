@@ -54,6 +54,6 @@ test_expect_success 'add work to upstream' '
 changes='our and their changes'
 test_rebase_same_head success '--onto B B'
 test_rebase_same_head success '--onto B... B'
-test_rebase_same_head failure '--onto master... master'
+test_rebase_same_head success '--onto master... master'
 
 test_done
