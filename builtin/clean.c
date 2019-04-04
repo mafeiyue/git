@@ -18,6 +18,7 @@
 #include "color.h"
 #include "pathspec.h"
 #include "help.h"
+#include "attr.h"
 
 static int force = -1; /* unset */
 static int interactive;
@@ -31,6 +32,8 @@ static const char *const builtin_clean_usage[] = {
 
 static const char *msg_remove = N_("Removing %s\n");
 static const char *msg_would_remove = N_("Would remove %s\n");
+static const char *msg_skip_precious = N_("Skipping precious file %s\n");
+static const char *msg_would_skip_precious = N_("Would skip precious file %s\n");
 static const char *msg_skip_git_dir = N_("Skipping repository %s\n");
 static const char *msg_would_skip_git_dir = N_("Would skip repository %s\n");
 static const char *msg_warn_remove_failed = N_("failed to remove %s");
@@ -154,6 +157,7 @@ static int remove_dirs(struct strbuf *path, const char *prefix, int force_flag,
 	struct dirent *e;
 	int res = 0, ret = 0, gone = 1, original_len = path->len, len;
 	struct string_list dels = STRING_LIST_INIT_DUP;
+	const char *rel_path;
 
 	*dir_gone = 1;
 
@@ -193,9 +197,16 @@ static int remove_dirs(struct strbuf *path, const char *prefix, int force_flag,
 
 		strbuf_setlen(path, len);
 		strbuf_addstr(path, e->d_name);
-		if (lstat(path->buf, &st))
+		if (lstat(path->buf, &st)) {
 			; /* fall thru */
-		else if (S_ISDIR(st.st_mode)) {
+		} else if ((!prefix && is_precious_file(&the_index, path->buf)) ||
+			   (prefix && skip_prefix(path->buf, prefix, &rel_path) &&
+			    is_precious_file(&the_index, rel_path))) {
+			quote_path_relative(path->buf, prefix, &quoted);
+			printf(dry_run ? _(msg_would_skip_precious) : _(msg_skip_precious), quoted.buf);
+			*dir_gone = 0;
+			continue;
+		} else if (S_ISDIR(st.st_mode)) {
 			if (remove_dirs(path, prefix, force_flag, dry_run, quiet, &gone))
 				ret = 1;
 			if (gone) {
@@ -1019,7 +1030,10 @@ int cmd_clean(int argc, const char **argv, const char *prefix)
 		if (lstat(abs_path.buf, &st))
 			continue;
 
-		if (S_ISDIR(st.st_mode)) {
+		if (is_precious_file(&the_index, item->string)) {
+			qname = quote_path_relative(item->string, NULL, &buf);
+			printf(dry_run ? _(msg_would_skip_precious) : _(msg_skip_precious), qname);
+		} else if (S_ISDIR(st.st_mode)) {
 			if (remove_dirs(&abs_path, prefix, rm_flags, dry_run, quiet, &gone))
 				errors++;
 			if (gone && !quiet) {

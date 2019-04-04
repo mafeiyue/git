@@ -149,6 +149,10 @@ not tracked by Git remain untracked.
 To stop tracking a file that is currently tracked, use
 'git rm --cached'.
 
+Ignored files are generally considered discardable. See `precious`
+attribute in linkgit:gitattributes[5] to change the behavior regarding
+ignored files.
+
 EXAMPLES
 --------
 

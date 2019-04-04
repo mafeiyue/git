@@ -21,7 +21,8 @@ option is specified, ignored files are also removed. This can, for
 example, be useful to remove all build products.
 
 If any optional `<path>...` arguments are given, only those paths
-are affected.
+are affected. Ignored or untracked files with `precious` attributes
+are not removed.
 
 OPTIONS
 -------
