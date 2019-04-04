@@ -405,7 +405,7 @@ test_expect_success \
 	'git checkout master &&
 	 git tag -a -m "Tag commit object" tag-commit HEAD &&
 	 git tag -a -m "" tag-commit-nomessage HEAD &&
-	 git tag -a -m "Tag tag object" tag-tag tag-commit &&
+	 git tag --allow-nested-tag -a -m "Tag tag object" tag-tag tag-commit &&
 	 git tag -a -m "Tag tree object" tag-tree HEAD^{tree} &&
 	 git tag -a -m "Tag blob object" tag-blob HEAD:file &&
 	 git tag lightweight/tag-commit HEAD &&
