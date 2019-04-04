@@ -81,7 +81,7 @@ int close_pack_fd(struct packed_git *p);
 
 extern uint32_t get_pack_fanout(struct packed_git *p, uint32_t value);
 
-extern unsigned char *use_pack(struct packed_git *, struct pack_window **, off_t, unsigned long *);
+extern unsigned char *use_pack(struct packed_git *, struct pack_window **, off_t, size_t *);
 extern void close_pack_windows(struct packed_git *);
 extern void close_pack(struct packed_git *);
 extern void close_all_packs(struct raw_object_store *o);
