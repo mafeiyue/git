@@ -311,12 +311,42 @@ static int diff_hunks(mmfile_t *file_a, mmfile_t *file_b,
 	return xdi_diff(file_a, file_b, &xpp, &xecfg, &ecb);
 }
 
+static const char *get_next_line(const char *start, const char *end)
+{
+	const char *nl = memchr(start, '\n', end - start);
+
+	return nl ? nl + 1 : end;
+}
+
+static int find_line_starts(int **line_starts, const char *buf,
+			    unsigned long len)
+{
+	const char *end = buf + len;
+	const char *p;
+	int *lineno;
+	int num = 0;
+
+	for (p = buf; p < end; p = get_next_line(p, end))
+		num++;
+
+	ALLOC_ARRAY(*line_starts, num + 1);
+	lineno = *line_starts;
+
+	for (p = buf; p < end; p = get_next_line(p, end))
+		*lineno++ = p - buf;
+
+	*lineno = len;
+
+	return num;
+}
+
 /*
  * Given an origin, prepare mmfile_t structure to be used by the
  * diff machinery
  */
 static void fill_origin_blob(struct diff_options *opt,
-			     struct blame_origin *o, mmfile_t *file, int *num_read_blob)
+			     struct blame_origin *o, mmfile_t *file,
+			     int *num_read_blob, int fill_line_starts)
 {
 	if (!o->file.ptr) {
 		enum object_type type;
@@ -340,11 +370,16 @@ static void fill_origin_blob(struct diff_options *opt,
 	}
 	else
 		*file = o->file;
+	if (fill_line_starts && !o->line_starts)
+		o->num_lines = find_line_starts(&o->line_starts, o->file.ptr,
+						o->file.size);
 }
 
 static void drop_origin_blob(struct blame_origin *o)
 {
 	FREE_AND_NULL(o->file.ptr);
+	FREE_AND_NULL(o->line_starts);
+	o->num_lines = 0;
 }
 
 /*
@@ -480,7 +515,9 @@ void blame_coalesce(struct blame_scoreboard *sb)
 
 	for (ent = sb->ent; ent && (next = ent->next); ent = next) {
 		if (ent->suspect == next->suspect &&
-		    ent->s_lno + ent->num_lines == next->s_lno) {
+		    ent->s_lno + ent->num_lines == next->s_lno &&
+		    ent->ignored == next->ignored &&
+		    ent->unblamable == next->unblamable) {
 			ent->num_lines += next->num_lines;
 			ent->next = next->next;
 			blame_origin_decref(next->suspect);
@@ -732,6 +769,11 @@ static void split_overlap(struct blame_entry *split,
 	int chunk_end_lno;
 	memset(split, 0, sizeof(struct blame_entry [3]));
 
+	split[0].ignored = split[1].ignored = split[2].ignored = e->ignored;
+	split[0].unblamable = e->unblamable;
+	split[1].unblamable = e->unblamable;
+	split[2].unblamable = e->unblamable;
+
 	if (e->s_lno < tlno) {
 		/* there is a pre-chunk part not blamed on parent */
 		split[0].suspect = blame_origin_incref(e->suspect);
@@ -840,6 +882,212 @@ static struct blame_entry *reverse_blame(struct blame_entry *head,
 }
 
 /*
+ * Splits a blame entry into two entries at 'len' lines.  The original 'e'
+ * consists of len lines, i.e. [e->lno, e->lno + len), and the second part,
+ * which is returned, consists of the remainder: [e->lno + len, e->lno +
+ * e->num_lines).  The caller needs to sort out the reference counting for the
+ * new entry's suspect.
+ */
+static struct blame_entry *split_blame_at(struct blame_entry *e, int len,
+					  struct blame_origin *new_suspect)
+{
+	struct blame_entry *n = xcalloc(1, sizeof(struct blame_entry));
+
+	n->suspect = new_suspect;
+	n->ignored = e->ignored;
+	n->unblamable = e->unblamable;
+	n->lno = e->lno + len;
+	n->s_lno = e->s_lno + len;
+	n->num_lines = e->num_lines - len;
+	e->num_lines = len;
+	e->score = 0;
+	return n;
+}
+
+struct blame_line_tracker {
+	int is_parent;
+	int s_lno;
+};
+
+static int are_lines_adjacent(struct blame_line_tracker *first,
+			      struct blame_line_tracker *second)
+{
+	return first->is_parent == second->is_parent &&
+	       first->s_lno + 1 == second->s_lno;
+}
+
+/* https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel */
+static int bitcount(uint32_t v)
+{
+	v = v - ((v >> 1) & 0x55555555u);
+	v = (v & 0x33333333u) + ((v >> 2) & 0x33333333u);
+	return (((v + (v >> 4)) & 0xf0f0f0fu) * 0x1010101u) >> 24;
+}
+
+#define FINGERPRINT_LENGTH (8 * 256)
+#define FINGERPRINT_THRESHOLD 1
+/* This is just a bitset indicating which byte pairs are present.
+ * e.g. the string "good goo" has pairs "go", "oo", "od", "d ", " g"
+ * String similarity is calculated as a bitwise or and counting the set bits.
+ *
+ * TODO for the string lengths we typically deal with, this would probably be
+ * implemented more efficiently with a set data structure.
+ */
+struct fingerprint {
+	uint32_t bits[FINGERPRINT_LENGTH];
+};
+
+static void get_fingerprint(struct fingerprint *result, const char *line_begin,
+			    const char *line_end)
+{
+	for (const char *p = line_begin; p + 1 < line_end; ++p) {
+		unsigned int c = tolower(*p) | (tolower(*(p + 1)) << 8);
+
+		result->bits[c >> 5] |= 1u << (c & 0x1f);
+	}
+}
+
+static int fingerprint_similarity(const struct fingerprint *a,
+				  const struct fingerprint *b)
+{
+	int intersection = 0;
+
+	for (int i = 0; i < FINGERPRINT_LENGTH; ++i)
+		intersection += bitcount(a->bits[i] & b->bits[i]);
+	return intersection;
+}
+
+static void get_chunk_fingerprints(struct fingerprint *fingerprints,
+				   const char *content,
+				   const int *line_starts,
+				   long chunk_start,
+				   long chunk_length)
+{
+	line_starts += chunk_start;
+	for (int i = 0; i != chunk_length; ++i) {
+		const char *linestart = content + line_starts[i];
+		const char *lineend = content + line_starts[i + 1];
+
+		get_fingerprint(fingerprints + i, linestart, lineend);
+	}
+}
+
+static void guess_line_blames(struct blame_entry *e,
+			      struct blame_origin *parent,
+			      struct blame_origin *target,
+			      int offset, int delta,
+			      struct blame_line_tracker *line_blames)
+{
+	struct fingerprint *fp_parent, *fp_target;
+	int nr_parent_lines = e->num_lines - delta;
+
+	fp_parent = xcalloc(sizeof(struct fingerprint), nr_parent_lines);
+	fp_target = xcalloc(sizeof(struct fingerprint), e->num_lines);
+
+	get_chunk_fingerprints(fp_parent, parent->file.ptr,
+			       parent->line_starts,
+			       e->s_lno + offset, nr_parent_lines);
+	get_chunk_fingerprints(fp_target, target->file.ptr,
+			       target->line_starts,
+			       e->s_lno, e->num_lines);
+
+	for (int i = 0; i < e->num_lines; i++) {
+		int best_sim_val = FINGERPRINT_THRESHOLD;
+		int best_sim_idx = -1;
+		int sim;
+
+		for (int j = 0; j < nr_parent_lines; j++) {
+			sim = fingerprint_similarity(&fp_target[i],
+						     &fp_parent[j]);
+			if (sim < best_sim_val)
+				continue;
+			/* Break ties with the closest-to-target line number */
+			if (sim == best_sim_val && best_sim_idx != -1 &&
+			    abs(best_sim_idx - i) < abs(j - i))
+				continue;
+			best_sim_val = sim;
+			best_sim_idx = j;
+		}
+		if (best_sim_idx >= 0) {
+			line_blames[i].is_parent = 1;
+			line_blames[i].s_lno = e->s_lno + offset + best_sim_idx;
+		} else {
+			line_blames[i].is_parent = 0;
+			line_blames[i].s_lno = e->s_lno + i;
+		}
+	}
+
+	free(fp_parent);
+	free(fp_target);
+}
+
+/*
+ * This decides which parts of a blame entry go to the parent (added to the
+ * ignoredp list) and which stay with the target (added to the diffp list).  The
+ * actual decision is made in a separate heuristic function.  This consumes e,
+ * essentially putting it on a list.
+ *
+ * Note that the blame entries on the ignoredp list are not necessarily sorted
+ * with respect to the parent's line numbers yet.
+ */
+static void ignore_blame_entry(struct blame_entry *e,
+			       struct blame_origin *parent,
+			       struct blame_origin *target,
+			       int offset, int delta,
+			       struct blame_entry **diffp,
+			       struct blame_entry **ignoredp)
+{
+	struct blame_line_tracker *line_blames;
+	int entry_len, nr_lines;
+
+	e->ignored = 1;
+	line_blames = xcalloc(sizeof(struct blame_line_tracker),
+			      e->num_lines);
+	guess_line_blames(e, parent, target, offset, delta, line_blames);
+	/*
+	 * We carve new entries off the front of e.  Each entry comes from a
+	 * contiguous chunk of lines: adjacent lines from the same origin
+	 * (either the parent or the target).
+	 */
+	entry_len = 1;
+	nr_lines = e->num_lines;	// e changes in the loop
+	for (int i = 0; i < nr_lines; i++) {
+		struct blame_entry *next = NULL;
+
+		/*
+		 * We are often adjacent to the next line - only split the blame
+		 * entry when we have to.
+		 */
+		if (i + 1 < nr_lines) {
+			if (are_lines_adjacent(&line_blames[i],
+					       &line_blames[i + 1])) {
+				entry_len++;
+				continue;
+			}
+			next = split_blame_at(e, entry_len,
+					      blame_origin_incref(e->suspect));
+		}
+		if (line_blames[i].is_parent) {
+			blame_origin_decref(e->suspect);
+			e->suspect = blame_origin_incref(parent);
+			e->s_lno = line_blames[i - entry_len + 1].s_lno;
+			e->next = *ignoredp;
+			*ignoredp = e;
+		} else {
+			e->unblamable = 1;
+			/* e->s_lno is already in the target's address space. */
+			e->next = *diffp;
+			*diffp = e;
+		}
+		assert(e->num_lines == entry_len);
+		e = next;
+		entry_len = 1;
+	}
+	assert(!e);
+	free(line_blames);
+}
+
+/*
  * Process one hunk from the patch between the current suspect for
  * blame_entry e and its parent.  This first blames any unfinished
  * entries before the chunk (which is where target and parent start
@@ -848,13 +1096,19 @@ static struct blame_entry *reverse_blame(struct blame_entry *head,
  * -C options may lead to overlapping/duplicate source line number
  * ranges, all we can rely on from sorting/merging is the order of the
  * first suspect line number.
+ *
+ * tlno: line number in the target where this chunk begins
+ * same: line number in the target where this chunk ends
+ * offset: add to tlno to get the chunk starting point in the parent
+ * delta: net number of lines added by the chunk; target_size - nr_parent_lines
  */
 static void blame_chunk(struct blame_entry ***dstq, struct blame_entry ***srcq,
-			int tlno, int offset, int same,
-			struct blame_origin *parent)
+			int tlno, int offset, int same, int delta,
+			struct blame_origin *parent,
+			struct blame_origin *target, int ignore_diffs)
 {
 	struct blame_entry *e = **srcq;
-	struct blame_entry *samep = NULL, *diffp = NULL;
+	struct blame_entry *samep = NULL, *diffp = NULL, *ignoredp = NULL;
 
 	while (e && e->s_lno < tlno) {
 		struct blame_entry *next = e->next;
@@ -865,14 +1119,9 @@ static void blame_chunk(struct blame_entry ***dstq, struct blame_entry ***srcq,
 		 */
 		if (e->s_lno + e->num_lines > tlno) {
 			/* Move second half to a new record */
-			int len = tlno - e->s_lno;
-			struct blame_entry *n = xcalloc(1, sizeof (struct blame_entry));
-			n->suspect = e->suspect;
-			n->lno = e->lno + len;
-			n->s_lno = e->s_lno + len;
-			n->num_lines = e->num_lines - len;
-			e->num_lines = len;
-			e->score = 0;
+			struct blame_entry *n;
+
+			n = split_blame_at(e, tlno - e->s_lno, e->suspect);
 			/* Push new record to diffp */
 			n->next = diffp;
 			diffp = n;
@@ -919,21 +1168,40 @@ static void blame_chunk(struct blame_entry ***dstq, struct blame_entry ***srcq,
 			 * Move second half to a new record to be
 			 * processed by later chunks
 			 */
-			int len = same - e->s_lno;
-			struct blame_entry *n = xcalloc(1, sizeof (struct blame_entry));
-			n->suspect = blame_origin_incref(e->suspect);
-			n->lno = e->lno + len;
-			n->s_lno = e->s_lno + len;
-			n->num_lines = e->num_lines - len;
-			e->num_lines = len;
-			e->score = 0;
+			struct blame_entry *n;
+
+			n = split_blame_at(e, same - e->s_lno,
+					   blame_origin_incref(e->suspect));
 			/* Push new record to samep */
 			n->next = samep;
 			samep = n;
 		}
-		e->next = diffp;
-		diffp = e;
+		if (ignore_diffs) {
+			ignore_blame_entry(e, parent, target, offset, delta,
+					   &diffp, &ignoredp);
+		} else {
+			e->next = diffp;
+			diffp = e;
+		}
 		e = next;
+	}
+	if (ignoredp) {
+		struct blame_entry *ignoredp_tail;
+
+		ignoredp = llist_mergesort(ignoredp, get_next_blame,
+					   set_next_blame,
+					   compare_blame_suspect);
+		/*
+		 * We don't use reverse_blame() since the list was already
+		 * reversed when it was sorted.  But we still need to find the
+		 * tail to splice into the dstq list.
+		 */
+		ignoredp_tail = ignoredp;
+		while (ignoredp_tail->next)
+			ignoredp_tail = ignoredp_tail->next;
+		ignoredp_tail->next = **dstq;
+		**dstq = ignoredp;
+		*dstq = &ignoredp_tail->next;
 	}
 	**srcq = reverse_blame(diffp, reverse_blame(samep, e));
 	/* Move across elements that are in the unblamable portion */
@@ -943,7 +1211,9 @@ static void blame_chunk(struct blame_entry ***dstq, struct blame_entry ***srcq,
 
 struct blame_chunk_cb_data {
 	struct blame_origin *parent;
+	struct blame_origin *target;
 	long offset;
+	int ignore_diffs;
 	struct blame_entry **dstq;
 	struct blame_entry **srcq;
 };
@@ -956,7 +1226,8 @@ static int blame_chunk_cb(long start_a, long count_a,
 	if (start_a - start_b != d->offset)
 		die("internal error in blame::blame_chunk_cb");
 	blame_chunk(&d->dstq, &d->srcq, start_b, start_a - start_b,
-		    start_b + count_b, d->parent);
+		    start_b + count_b, count_b - count_a, d->parent, d->target,
+		    d->ignore_diffs);
 	d->offset = start_a + count_a - (start_b + count_b);
 	return 0;
 }
@@ -968,7 +1239,7 @@ static int blame_chunk_cb(long start_a, long count_a,
  */
 static void pass_blame_to_parent(struct blame_scoreboard *sb,
 				 struct blame_origin *target,
-				 struct blame_origin *parent)
+				 struct blame_origin *parent, int ignore_diffs)
 {
 	mmfile_t file_p, file_o;
 	struct blame_chunk_cb_data d;
@@ -978,11 +1249,15 @@ static void pass_blame_to_parent(struct blame_scoreboard *sb,
 		return; /* nothing remains for this target */
 
 	d.parent = parent;
+	d.target = target;
 	d.offset = 0;
+	d.ignore_diffs = ignore_diffs;
 	d.dstq = &newdest; d.srcq = &target->suspects;
 
-	fill_origin_blob(&sb->revs->diffopt, parent, &file_p, &sb->num_read_blob);
-	fill_origin_blob(&sb->revs->diffopt, target, &file_o, &sb->num_read_blob);
+	fill_origin_blob(&sb->revs->diffopt, parent, &file_p,
+			 &sb->num_read_blob, ignore_diffs);
+	fill_origin_blob(&sb->revs->diffopt, target, &file_o,
+			 &sb->num_read_blob, ignore_diffs);
 	sb->num_get_patch++;
 
 	if (diff_hunks(&file_p, &file_o, blame_chunk_cb, &d, sb->xdl_opts))
@@ -990,7 +1265,8 @@ static void pass_blame_to_parent(struct blame_scoreboard *sb,
 		    oid_to_hex(&parent->commit->object.oid),
 		    oid_to_hex(&target->commit->object.oid));
 	/* The rest are the same as the parent */
-	blame_chunk(&d.dstq, &d.srcq, INT_MAX, d.offset, INT_MAX, parent);
+	blame_chunk(&d.dstq, &d.srcq, INT_MAX, d.offset, INT_MAX, INT_MAX,
+		    parent, target, 0);
 	*d.dstq = NULL;
 	queue_blames(sb, parent, newdest);
 
@@ -1188,7 +1464,8 @@ static void find_move_in_parent(struct blame_scoreboard *sb,
 	if (!unblamed)
 		return; /* nothing remains for this target */
 
-	fill_origin_blob(&sb->revs->diffopt, parent, &file_p, &sb->num_read_blob);
+	fill_origin_blob(&sb->revs->diffopt, parent, &file_p,
+			 &sb->num_read_blob, 0);
 	if (!file_p.ptr)
 		return;
 
@@ -1317,7 +1594,8 @@ static void find_copy_in_parent(struct blame_scoreboard *sb,
 			norigin = get_origin(parent, p->one->path);
 			oidcpy(&norigin->blob_oid, &p->one->oid);
 			norigin->mode = p->one->mode;
-			fill_origin_blob(&sb->revs->diffopt, norigin, &file_p, &sb->num_read_blob);
+			fill_origin_blob(&sb->revs->diffopt, norigin, &file_p,
+					 &sb->num_read_blob, 0);
 			if (!file_p.ptr)
 				continue;
 
@@ -1495,9 +1773,26 @@ static void pass_blame(struct blame_scoreboard *sb, struct blame_origin *origin,
 			blame_origin_incref(porigin);
 			origin->previous = porigin;
 		}
-		pass_blame_to_parent(sb, origin, porigin);
+		pass_blame_to_parent(sb, origin, porigin, 0);
 		if (!origin->suspects)
 			goto finish;
+	}
+
+	/*
+	 * Pass remaining suspects for ignored commits to their parents.
+	 */
+	if (oidset_contains(&sb->ignore_list, &commit->object.oid)) {
+		for (i = 0, sg = first_scapegoat(revs, commit, sb->reverse);
+		     i < num_sg && sg;
+		     sg = sg->next, i++) {
+			struct blame_origin *porigin = sg_origin[i];
+
+			if (!porigin)
+				continue;
+			pass_blame_to_parent(sb, origin, porigin, 1);
+			if (!origin->suspects)
+				goto finish;
+		}
 	}
 
 	/*
@@ -1640,37 +1935,14 @@ void assign_blame(struct blame_scoreboard *sb, int opt)
 	}
 }
 
-static const char *get_next_line(const char *start, const char *end)
-{
-	const char *nl = memchr(start, '\n', end - start);
-	return nl ? nl + 1 : end;
-}
-
 /*
  * To allow quick access to the contents of nth line in the
  * final image, prepare an index in the scoreboard.
  */
 static int prepare_lines(struct blame_scoreboard *sb)
 {
-	const char *buf = sb->final_buf;
-	unsigned long len = sb->final_buf_size;
-	const char *end = buf + len;
-	const char *p;
-	int *lineno;
-	int num = 0;
-
-	for (p = buf; p < end; p = get_next_line(p, end))
-		num++;
-
-	ALLOC_ARRAY(sb->lineno, num + 1);
-	lineno = sb->lineno;
-
-	for (p = buf; p < end; p = get_next_line(p, end))
-		*lineno++ = p - buf;
-
-	*lineno = len;
-
-	sb->num_lines = num;
+	sb->num_lines = find_line_starts(&sb->lineno, sb->final_buf,
+					 sb->final_buf_size);
 	return sb->num_lines;
 }
 
