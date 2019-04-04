@@ -1265,7 +1265,7 @@ echo "A message for another tag" >>expect
 echo '-----BEGIN PGP SIGNATURE-----' >>expect
 test_expect_success GPG \
 	'creating a signed tag pointing to another tag should succeed' '
-	git tag -s -m "A message for another tag" tag-signed-tag signed-tag &&
+	git tag -s -m "A message for another tag" --allow-nested-tag tag-signed-tag signed-tag &&
 	get_tag_msg tag-signed-tag >actual &&
 	test_cmp expect actual
 '
@@ -1690,7 +1690,7 @@ test_expect_success '--points-at finds annotated tags of commits' '
 '
 
 test_expect_success '--points-at finds annotated tags of tags' '
-	git tag -m "describing the v4.0 tag object" \
+	git tag -m "describing the v4.0 tag object" --allow-nested-tag \
 		annotated-again-v4.0 annotated-v4.0 &&
 	cat >expect <<-\EOF &&
 	annotated-again-v4.0
@@ -1698,6 +1698,14 @@ test_expect_success '--points-at finds annotated tags of tags' '
 	EOF
 	git tag --points-at=annotated-v4.0 >actual &&
 	test_cmp expect actual
+'
+
+test_expect_success 'recursive tagging should fail without --allow-nested-tag' '
+	test_must_fail git tag -m nested nested annotated-v4.0
+'
+
+test_expect_success 'recursive tagging should pass with --allow-nested-tag' '
+	git tag --allow-nested-tag -m nested nested annotated-v4.0
 '
 
 test_expect_success 'multiple --points-at are OR-ed together' '

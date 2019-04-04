@@ -562,7 +562,7 @@ test_expect_success 'test --all wrt tag to non-commits' '
 		hello tag
 	EOF
 	) &&
-	git tag -a -m "tag -> tag" tag-to-tag $tag &&
+	git tag -a -m "tag -> tag" --allow-nested-tag tag-to-tag $tag &&
 
 	# `fetch-pack --all` should succeed fetching all those objects.
 	mkdir fetchall &&

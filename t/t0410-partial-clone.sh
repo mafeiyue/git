@@ -16,7 +16,7 @@ pack_as_from_promisor () {
 
 promise_and_delete () {
 	HASH=$(git -C repo rev-parse "$1") &&
-	git -C repo tag -a -m message my_annotated_tag "$HASH" &&
+	git -C repo tag -a -m message my_annotated_tag --allow-nested-tag "$HASH" &&
 	git -C repo rev-parse my_annotated_tag | pack_as_from_promisor &&
 	# tag -d prints a message to stdout, so redirect it
 	git -C repo tag -d my_annotated_tag >/dev/null &&

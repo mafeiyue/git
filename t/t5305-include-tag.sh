@@ -68,7 +68,7 @@ test_expect_success 'check unpacked result (have commit, have tag)' '
 test_expect_success 'create hidden inner tag' '
 	test_commit commit &&
 	git tag -m inner inner HEAD &&
-	git tag -m outer outer inner &&
+	git tag -m outer --allow-nested-tag outer inner &&
 	git tag -d inner
 '
 

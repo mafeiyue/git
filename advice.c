@@ -27,6 +27,7 @@ int advice_waiting_for_editor = 1;
 int advice_graft_file_deprecated = 1;
 int advice_unknown_index_extension = 1;
 int advice_checkout_ambiguous_remote_branch_name = 1;
+int advice_nested_tag = 1;
 
 static int advice_use_color = -1;
 static char advice_colors[][COLOR_MAXLEN] = {
@@ -83,6 +84,7 @@ static struct {
 	{ "graftFileDeprecated", &advice_graft_file_deprecated },
 	{ "unknownIndexExtension", &advice_unknown_index_extension },
 	{ "checkoutAmbiguousRemoteBranchName", &advice_checkout_ambiguous_remote_branch_name },
+	{ "nestedTag", &advice_nested_tag },
 
 	/* make this an alias for backward compatibility */
 	{ "pushNonFastForward", &advice_push_update_rejected }

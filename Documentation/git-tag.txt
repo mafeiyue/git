@@ -10,7 +10,7 @@ SYNOPSIS
 --------
 [verse]
 'git tag' [-a | -s | -u <keyid>] [-f] [-m <msg> | -F <file>] [-e]
-	<tagname> [<commit> | <object>]
+	[--allow-nested-tag] <tagname> [<commit> | <object>]
 'git tag' -d <tagname>...
 'git tag' [-n[<num>]] -l [--contains <commit>] [--no-contains <commit>]
 	[--points-at <object>] [--column[=<options>] | --no-column]
@@ -192,6 +192,20 @@ This option is only applicable when listing tags without annotation lines.
 	and the object it points at.  The format is the same as
 	that of linkgit:git-for-each-ref[1].  When unspecified,
 	defaults to `%(refname:strip=2)`.
+
+--allow-nested-tag::
+	Usually nestedly tagging a tag object is a mistake and the
+	command prevents you from making such a tag. This option
+	bypasses the safety and allows this to happen.
++
+Note that there is nothing logically wrong with nesting tags and, in
+fact, there may be some valid use-cases, such as showing a cryptographic
+chain of custody by signing someone else's signed tag. However, in
+practice, this is typically a mistake so we prevent it from happening by
+default unless specifically requested.
++
+Automatically erroring on nested tags was introduced in Git version
+2.22.0.
 
 <tagname>::
 	The name of the tag to create, delete, or describe.

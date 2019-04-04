@@ -70,7 +70,7 @@ test_expect_success 'blame 1 author' '
 
 test_expect_success 'blame by tag objects' '
 	git tag -m "test tag" testTag &&
-	git tag -m "test tag #2" testTag2 testTag &&
+	git tag -m "test tag #2" --allow-nested-tag testTag2 testTag &&
 	check_count -h testTag A 2 &&
 	check_count -h testTag2 A 2
 '

@@ -511,7 +511,7 @@ test_expect_success 'set up log decoration tests' '
 
 test_expect_success 'log decoration properly follows tag chain' '
 	git tag -a tag1 -m tag1 &&
-	git tag -a tag2 -m tag2 tag1 &&
+	git tag -a tag2 -m tag2 --allow-nested-tag tag1 &&
 	git tag -d tag1 &&
 	git commit --amend -m shorter &&
 	git log --no-walk --tags --pretty="%H %d" --decorate=full >actual &&

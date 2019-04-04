@@ -12,7 +12,7 @@ test_expect_success 'setup some history and refs' '
 	git checkout -b side &&
 	test_commit four &&
 	git tag -m "An annotated tag" annotated-tag &&
-	git tag -m "Annonated doubly" doubly-annotated-tag annotated-tag &&
+	git tag -m "Annonated doubly" --allow-nested-tag doubly-annotated-tag annotated-tag &&
 
 	# Note that these "signed" tags might not actually be signed.
 	# Tests which care about the distinction should be marked
@@ -24,7 +24,7 @@ test_expect_success 'setup some history and refs' '
 		sign=
 	fi &&
 	git tag $sign -m "A signed tag" signed-tag &&
-	git tag $sign -m "Signed doubly" doubly-signed-tag signed-tag &&
+	git tag $sign -m "Signed doubly" --allow-nested-tag doubly-signed-tag signed-tag &&
 
 	git checkout master &&
 	git update-ref refs/odd/spot master

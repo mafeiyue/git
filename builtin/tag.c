@@ -22,10 +22,11 @@
 #include "ref-filter.h"
 
 static const char * const git_tag_usage[] = {
-	N_("git tag [-a | -s | -u <key-id>] [-f] [-m <msg> | -F <file>] <tagname> [<head>]"),
+	N_("git tag [-a | -s | -u <key-id>] [-f] [-m <msg> | -F <file>] [--allow-nested-tag]\n"
+		"\t\t<tagname> [<head>]"),
 	N_("git tag -d <tagname>..."),
-	N_("git tag -l [-n[<num>]] [--contains <commit>] [--no-contains <commit>] [--points-at <object>]"
-		"\n\t\t[--format=<format>] [--[no-]merged [<commit>]] [<pattern>...]"),
+	N_("git tag -l [-n[<num>]] [--contains <commit>] [--no-contains <commit>] [--points-at <object>]\n"
+		"\t\t[--format=<format>] [--[no-]merged [<commit>]] [<pattern>...]"),
 	N_("git tag -v [--format=<format>] <tagname>..."),
 	NULL
 };
@@ -197,6 +198,7 @@ static int build_tag_object(struct strbuf *buf, int sign, struct object_id *resu
 struct create_tag_options {
 	unsigned int message_given:1;
 	unsigned int use_editor:1;
+	unsigned int allow_nested_tag;
 	unsigned int sign;
 	enum {
 		CLEANUP_NONE,
@@ -204,6 +206,17 @@ struct create_tag_options {
 		CLEANUP_ALL
 	} cleanup_mode;
 };
+
+static const char message_advice_nested_tag[] =
+	N_("The object '%1$s' referred to by your new tag is already a tag.\n"
+	   "\n"
+	   "If you meant to create a tag of a tag, use:\n"
+	   "\n"
+	   "\tgit tag --allow-nested-tag %1$s\n"
+	   "\n"
+	   "If you meant to tag the object that it points to, use:\n"
+	   "\n"
+	   "\tgit tag %1$s^{}");
 
 static void create_tag(const struct object_id *object, const char *tag,
 		       struct strbuf *buf, struct create_tag_options *opt,
@@ -215,7 +228,14 @@ static void create_tag(const struct object_id *object, const char *tag,
 
 	type = oid_object_info(the_repository, object, NULL);
 	if (type <= OBJ_NONE)
-	    die(_("bad object type."));
+		die(_("bad object type."));
+
+	if (type == OBJ_TAG && !opt->allow_nested_tag) {
+		error(_("refusing to make a nested tag"));
+		if (advice_nested_tag)
+			advise(_(message_advice_nested_tag), tag);
+		exit(1);
+	}
 
 	strbuf_addf(&header,
 		    "object %s\n"
@@ -402,6 +422,8 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 					N_("use another key to sign the tag")),
 		OPT__FORCE(&force, N_("replace the tag if exists"), 0),
 		OPT_BOOL(0, "create-reflog", &create_reflog, N_("create a reflog")),
+		OPT_BOOL(0, "allow-nested-tag", &opt.allow_nested_tag,
+					N_("allow nested tags to be made")),
 
 		OPT_GROUP(N_("Tag listing options")),
 		OPT_COLUMN(0, "column", &colopts, N_("show tag list in columns")),
