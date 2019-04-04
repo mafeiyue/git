@@ -668,7 +668,7 @@ static int merge_working_tree(const struct checkout_opts *opts,
 		topts.initial_checkout = is_cache_unborn();
 		topts.update = 1;
 		topts.merge = 1;
-		topts.gently = opts->merge && old_branch_info->commit;
+		topts.quiet = opts->merge && old_branch_info->commit;
 		topts.verbose_update = opts->show_progress;
 		topts.fn = twoway_merge;
 		if (opts->overwrite_ignore) {
@@ -694,6 +694,7 @@ static int merge_working_tree(const struct checkout_opts *opts,
 			 */
 			struct tree *result;
 			struct tree *work;
+			struct tree *old_tree;
 			struct merge_options o;
 			struct strbuf sb = STRBUF_INIT;
 
@@ -706,6 +707,12 @@ static int merge_working_tree(const struct checkout_opts *opts,
 			 */
 			if (!old_branch_info->commit)
 				return 1;
+			old_tree = get_commit_tree(old_branch_info->commit);
+
+			if (repo_index_has_changes(the_repository, old_tree, &sb))
+				die(_("cannot continue with staged changes in "
+				      "the following files:\n%s"), sb.buf);
+			strbuf_release(&sb);
 
 			if (repo_index_has_changes(the_repository,
 						   get_commit_tree(old_branch_info->commit),
@@ -750,7 +757,7 @@ static int merge_working_tree(const struct checkout_opts *opts,
 			ret = merge_trees(&o,
 					  new_tree,
 					  work,
-					  get_commit_tree(old_branch_info->commit),
+					  old_tree,
 					  &result);
 			if (ret < 0)
 				exit(128);
