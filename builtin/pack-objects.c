@@ -97,7 +97,7 @@ static off_t reuse_packfile_offset;
 static int use_bitmap_index_default = 1;
 static int use_bitmap_index = -1;
 static int write_bitmap_index;
-static uint16_t write_bitmap_options;
+static uint16_t write_bitmap_options = BITMAP_OPT_HASH_CACHE;
 
 static int exclude_promisor_objects;
 
@@ -964,6 +964,8 @@ static void write_pack_file(void)
 	if (written != nr_result)
 		die(_("wrote %"PRIu32" objects while expecting %"PRIu32),
 		    written, nr_result);
+	trace2_data_intmax("pack-objects", the_repository,
+			   "write_pack_file/wrote", nr_result);
 }
 
 static int no_try_delta(const char *path)
@@ -1078,7 +1080,7 @@ static int want_object_in_pack(const struct object_id *oid,
 
 	for (m = get_multi_pack_index(the_repository); m; m = m->next) {
 		struct pack_entry e;
-		if (fill_midx_entry(oid, &e, m)) {
+		if (fill_midx_entry(the_repository, oid, &e, m)) {
 			struct packed_git *p = e.p;
 			off_t offset;
 
@@ -1487,6 +1489,7 @@ static int can_reuse_delta(const unsigned char *base_sha1,
 			   struct object_entry **base_out)
 {
 	struct object_entry *base;
+	struct object_id base_oid;
 
 	if (!base_sha1)
 		return 0;
@@ -1508,10 +1511,9 @@ static int can_reuse_delta(const unsigned char *base_sha1,
 	 * even if it was buried too deep in history to make it into the
 	 * packing list.
 	 */
-	if (thin && bitmap_has_sha1_in_uninteresting(bitmap_git, base_sha1)) {
+	oidread(&base_oid, base_sha1);
+	if (thin && bitmap_has_oid_in_uninteresting(bitmap_git, &base_oid)) {
 		if (use_delta_islands) {
-			struct object_id base_oid;
-			hashcpy(base_oid.hash, base_sha1);
 			if (!in_same_island(&delta->idx.oid, &base_oid))
 				return 0;
 		}
@@ -2897,7 +2899,7 @@ static int ofscmp(const void *a_, const void *b_)
 		return oidcmp(&a->object->oid, &b->object->oid);
 }
 
-static void add_objects_in_unpacked_packs(struct rev_info *revs)
+static void add_objects_in_unpacked_packs(void)
 {
 	struct packed_git *p;
 	struct in_pack in_pack;
@@ -3009,7 +3011,7 @@ static int loosened_object_can_be_discarded(const struct object_id *oid,
 	return 1;
 }
 
-static void loosen_unused_packed_objects(struct rev_info *revs)
+static void loosen_unused_packed_objects(void)
 {
 	struct packed_git *p;
 	uint32_t i;
@@ -3156,11 +3158,11 @@ static void get_object_list(int ac, const char **av)
 	}
 
 	if (keep_unreachable)
-		add_objects_in_unpacked_packs(&revs);
+		add_objects_in_unpacked_packs();
 	if (pack_loose_unreachable)
 		add_unreachable_loose_objects();
 	if (unpack_unreachable)
-		loosen_unused_packed_objects(&revs);
+		loosen_unused_packed_objects();
 
 	oid_array_clear(&recent_objects);
 }

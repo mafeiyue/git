@@ -82,7 +82,7 @@
 /git-init-db
 /git-interpret-trailers
 /git-instaweb
-/git-legacy-rebase
+/git-legacy-stash
 /git-log
 /git-ls-files
 /git-ls-remote
@@ -122,9 +122,6 @@
 /git-range-diff
 /git-read-tree
 /git-rebase
-/git-rebase--am
-/git-rebase--common
-/git-rebase--interactive
 /git-rebase--preserve-merges
 /git-receive-pack
 /git-reflog
@@ -135,7 +132,6 @@
 /git-remote-ftps
 /git-remote-fd
 /git-remote-ext
-/git-remote-testgit
 /git-remote-testpy
 /git-remote-testsvn
 /git-repack

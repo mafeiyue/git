@@ -77,7 +77,7 @@ static enum missing_action arg_missing_action;
 
 #define DEFAULT_OIDSET_SIZE     (16*1024)
 
-static void finish_commit(struct commit *commit, void *data);
+static void finish_commit(struct commit *commit);
 static void show_commit(struct commit *commit, void *data)
 {
 	struct rev_list_info *info = data;
@@ -86,7 +86,7 @@ static void show_commit(struct commit *commit, void *data)
 	display_progress(progress, ++progress_counter);
 
 	if (info->flags & REV_LIST_QUIET) {
-		finish_commit(commit, data);
+		finish_commit(commit);
 		return;
 	}
 
@@ -99,7 +99,7 @@ static void show_commit(struct commit *commit, void *data)
 			revs->count_left++;
 		else
 			revs->count_right++;
-		finish_commit(commit, data);
+		finish_commit(commit);
 		return;
 	}
 
@@ -188,10 +188,10 @@ static void show_commit(struct commit *commit, void *data)
 			putchar('\n');
 	}
 	maybe_flush_or_die(stdout, "stdout");
-	finish_commit(commit, data);
+	finish_commit(commit);
 }
 
-static void finish_commit(struct commit *commit, void *data)
+static void finish_commit(struct commit *commit)
 {
 	if (commit->parents) {
 		free_commit_list(commit->parents);
@@ -379,7 +379,6 @@ int cmd_rev_list(int argc, const char **argv, const char *prefix)
 	repo_init_revisions(the_repository, &revs, prefix);
 	revs.abbrev = DEFAULT_ABBREV;
 	revs.commit_format = CMIT_FMT_UNSPECIFIED;
-	revs.do_not_die_on_missing_tree = 1;
 
 	/*
 	 * Scan the argument list before invoking setup_revisions(), so that we
@@ -408,6 +407,9 @@ int cmd_rev_list(int argc, const char **argv, const char *prefix)
 				break;
 		}
 	}
+
+	if (arg_missing_action)
+		revs.do_not_die_on_missing_tree = 1;
 
 	argc = setup_revisions(argc, argv, &revs, &s_r_opt);
 

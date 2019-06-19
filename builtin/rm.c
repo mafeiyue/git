@@ -61,7 +61,7 @@ static void print_error_files(struct string_list *files_list,
 	}
 }
 
-static void submodules_absorb_gitdir_if_needed(const char *prefix)
+static void submodules_absorb_gitdir_if_needed(void)
 {
 	int i;
 	for (i = 0; i < list.nr; i++) {
@@ -83,7 +83,7 @@ static void submodules_absorb_gitdir_if_needed(const char *prefix)
 			continue;
 
 		if (!submodule_uses_gitfile(name))
-			absorb_git_dir_into_superproject(prefix, name,
+			absorb_git_dir_into_superproject(name,
 				ABSORB_GITDIR_RECURSE_SUBMODULES);
 	}
 }
@@ -110,7 +110,7 @@ static int check_local_mod(struct object_id *head, int index_only)
 		const struct cache_entry *ce;
 		const char *name = list.entry[i].name;
 		struct object_id oid;
-		unsigned mode;
+		unsigned short mode;
 		int local_changes = 0;
 		int staged_changes = 0;
 
@@ -313,7 +313,7 @@ int cmd_rm(int argc, const char **argv, const char *prefix)
 	}
 
 	if (!index_only)
-		submodules_absorb_gitdir_if_needed(prefix);
+		submodules_absorb_gitdir_if_needed();
 
 	/*
 	 * If not forced, the file, the index and the HEAD (if exists)

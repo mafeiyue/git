@@ -169,7 +169,7 @@ struct diff_options {
 	const char *prefix;
 	int prefix_length;
 	const char *stat_sep;
-	long xdl_opts;
+	int xdl_opts;
 
 	/* see Documentation/diff-options.txt */
 	char **anchors;
@@ -232,6 +232,8 @@ struct diff_options {
 	struct repository *repo;
 	struct option *parseopts;
 };
+
+unsigned diff_filter_bit(char status);
 
 void diff_emit_submodule_del(struct diff_options *o, const char *line);
 void diff_emit_submodule_add(struct diff_options *o, const char *line);
@@ -434,11 +436,13 @@ int run_diff_files(struct rev_info *revs, unsigned int option);
 int run_diff_index(struct rev_info *revs, int cached);
 
 int do_diff_cache(const struct object_id *, struct diff_options *);
-int diff_flush_patch_id(struct diff_options *, struct object_id *, int);
+int diff_flush_patch_id(struct diff_options *, struct object_id *, int, int);
+void flush_one_hunk(struct object_id *, git_SHA_CTX *);
 
 int diff_result_code(struct diff_options *, int);
 
-void diff_no_index(struct rev_info *, int, const char **);
+int diff_no_index(struct rev_info *,
+		  int implicit_no_index, int, const char **);
 
 int index_differs_from(struct repository *r, const char *def,
 		       const struct diff_flags *flags,

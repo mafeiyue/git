@@ -1392,7 +1392,8 @@ static void fill_remote_ref_details(struct used_atom *atom, const char *refname,
 		*s = show_ref(&atom->u.remote_ref.refname, refname);
 	else if (atom->u.remote_ref.option == RR_TRACK) {
 		if (stat_tracking_info(branch, &num_ours, &num_theirs,
-				       NULL, AHEAD_BEHIND_FULL) < 0) {
+				       NULL, atom->u.remote_ref.push,
+				       AHEAD_BEHIND_FULL) < 0) {
 			*s = xstrdup(msgs.gone);
 		} else if (!num_ours && !num_theirs)
 			*s = xstrdup("");
@@ -1410,7 +1411,8 @@ static void fill_remote_ref_details(struct used_atom *atom, const char *refname,
 		}
 	} else if (atom->u.remote_ref.option == RR_TRACKSHORT) {
 		if (stat_tracking_info(branch, &num_ours, &num_theirs,
-				       NULL, AHEAD_BEHIND_FULL) < 0) {
+				       NULL, atom->u.remote_ref.push,
+				       AHEAD_BEHIND_FULL) < 0) {
 			*s = xstrdup("");
 			return;
 		}
@@ -2337,8 +2339,13 @@ void parse_ref_sorting(struct ref_sorting **sorting_tail, const char *arg)
 
 int parse_opt_ref_sorting(const struct option *opt, const char *arg, int unset)
 {
-	if (!arg) /* should --no-sort void the list ? */
-		return -1;
+	/*
+	 * NEEDSWORK: We should probably clear the list in this case, but we've
+	 * already munged the global used_atoms list, which would need to be
+	 * undone.
+	 */
+	BUG_ON_OPT_NEG(unset);
+
 	parse_ref_sorting(opt->value, arg);
 	return 0;
 }

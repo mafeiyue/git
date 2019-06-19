@@ -285,7 +285,7 @@ EOF
 	test_cmp From_.msg out
 '
 
-test_expect_success 'rebase--am.sh and --show-current-patch' '
+test_expect_success 'rebase --am and --show-current-patch' '
 	test_create_repo conflict-apply &&
 	(
 		cd conflict-apply &&
@@ -317,6 +317,22 @@ test_expect_success 'rebase--merge.sh and --show-current-patch' '
 		grep "show.*REBASE_HEAD" stderr &&
 		test "$(git rev-parse REBASE_HEAD)" = "$(git rev-parse two)"
 	)
+'
+
+test_expect_success 'rebase -c rebase.useBuiltin=false warning' '
+	expected="rebase.useBuiltin support has been removed" &&
+
+	# Only warn when the legacy rebase is requested...
+	test_must_fail git -c rebase.useBuiltin=false rebase 2>err &&
+	test_i18ngrep "$expected" err &&
+	test_must_fail env GIT_TEST_REBASE_USE_BUILTIN=false git rebase 2>err &&
+	test_i18ngrep "$expected" err &&
+
+	# ...not when we would have used the built-in anyway
+	test_must_fail git -c rebase.useBuiltin=true rebase 2>err &&
+	test_must_be_empty err &&
+	test_must_fail env GIT_TEST_REBASE_USE_BUILTIN=true git rebase 2>err &&
+	test_must_be_empty err
 '
 
 test_done

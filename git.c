@@ -33,7 +33,8 @@ const char git_usage_string[] =
 const char git_more_info_string[] =
 	N_("'git help -a' and 'git help -g' list available subcommands and some\n"
 	   "concept guides. See 'git help <command>' or 'git help <concept>'\n"
-	   "to read about a specific subcommand or concept.");
+	   "to read about a specific subcommand or concept.\n"
+	   "See 'git help git' for an overview of the system.");
 
 static int use_pager = -1;
 
@@ -62,6 +63,13 @@ static int list_cmds(const char *spec)
 {
 	struct string_list list = STRING_LIST_INIT_DUP;
 	int i;
+	int nongit;
+
+	/*
+	* Set up the repository so we can pick up any repo-level config (like
+	* completion.commands).
+	*/
+	setup_git_directory_gently(&nongit);
 
 	while (*spec) {
 		const char *sep = strchrnul(spec, ',');
@@ -491,7 +499,7 @@ static struct cmd_struct commands[] = {
 	{ "diff-files", cmd_diff_files, RUN_SETUP | NEED_WORK_TREE | NO_PARSEOPT },
 	{ "diff-index", cmd_diff_index, RUN_SETUP | NO_PARSEOPT },
 	{ "diff-tree", cmd_diff_tree, RUN_SETUP | NO_PARSEOPT },
-	{ "difftool", cmd_difftool, RUN_SETUP | NEED_WORK_TREE },
+	{ "difftool", cmd_difftool, RUN_SETUP_GENTLY },
 	{ "fast-export", cmd_fast_export, RUN_SETUP },
 	{ "fetch", cmd_fetch, RUN_SETUP },
 	{ "fetch-pack", cmd_fetch_pack, RUN_SETUP | NO_PARSEOPT },
@@ -563,13 +571,18 @@ static struct cmd_struct commands[] = {
 	{ "revert", cmd_revert, RUN_SETUP | NEED_WORK_TREE },
 	{ "rm", cmd_rm, RUN_SETUP },
 	{ "send-pack", cmd_send_pack, RUN_SETUP },
-	{ "serve", cmd_serve, RUN_SETUP },
 	{ "shortlog", cmd_shortlog, RUN_SETUP_GENTLY | USE_PAGER },
 	{ "show", cmd_show, RUN_SETUP },
 	{ "show-branch", cmd_show_branch, RUN_SETUP },
 	{ "show-index", cmd_show_index },
 	{ "show-ref", cmd_show_ref, RUN_SETUP },
 	{ "stage", cmd_add, RUN_SETUP | NEED_WORK_TREE },
+	/*
+	 * NEEDSWORK: Until the builtin stash is thoroughly robust and no
+	 * longer needs redirection to the stash shell script this is kept as
+	 * is, then should be changed to RUN_SETUP | NEED_WORK_TREE
+	 */
+	{ "stash", cmd_stash },
 	{ "status", cmd_status, RUN_SETUP | NEED_WORK_TREE },
 	{ "stripspace", cmd_stripspace },
 	{ "submodule--helper", cmd_submodule__helper, RUN_SETUP | SUPPORT_SUPER_PREFIX | NO_PARSEOPT },

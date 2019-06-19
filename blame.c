@@ -99,7 +99,7 @@ static void verify_working_tree_path(struct repository *r,
 	for (parents = work_tree->parents; parents; parents = parents->next) {
 		const struct object_id *commit_oid = &parents->item->object.oid;
 		struct object_id blob_oid;
-		unsigned mode;
+		unsigned short mode;
 
 		if (!get_tree_entry(commit_oid, path, &blob_oid, &mode) &&
 		    oid_object_info(r, &blob_oid, NULL) == OBJ_BLOB)
@@ -1562,7 +1562,8 @@ finish:
 	}
 	for (i = 0; i < num_sg; i++) {
 		if (sg_origin[i]) {
-			drop_origin_blob(sg_origin[i]);
+			if (!sg_origin[i]->suspects)
+				drop_origin_blob(sg_origin[i]);
 			blame_origin_decref(sg_origin[i]);
 		}
 	}

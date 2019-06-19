@@ -93,7 +93,7 @@ test_expect_success 'No extra GIT_* on alias scripts' '
 		sed -n \
 			-e "/^GIT_PREFIX=/d" \
 			-e "/^GIT_TEXTDOMAINDIR=/d" \
-			-e "/^GIT_TR2_PARENT/d" \
+			-e "/^GIT_TRACE2_PARENT/d" \
 			-e "/^GIT_/s/=.*//p" |
 		sort
 	EOF
@@ -175,7 +175,7 @@ test_expect_success 'reinit' '
 test_expect_success 'init with --template' '
 	mkdir template-source &&
 	echo content >template-source/file &&
-	git init --template=../template-source template-custom &&
+	git init --template=template-source template-custom &&
 	test_cmp template-source/file template-custom/.git/file
 '
 
@@ -452,6 +452,17 @@ test_expect_success 're-init from a linked worktree' '
 		find .git/worktrees -print | sort >actual &&
 		test_cmp expected actual
 	)
+'
+
+test_expect_success MINGW 'core.hidedotfiles = false' '
+	git config --global core.hidedotfiles false &&
+	rm -rf newdir &&
+	mkdir newdir &&
+	(
+		sane_unset GIT_DIR GIT_WORK_TREE GIT_CONFIG &&
+		git -C newdir init
+	) &&
+	! is_hidden newdir/.git
 '
 
 test_expect_success MINGW 'redirect std handles' '

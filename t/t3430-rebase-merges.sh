@@ -164,6 +164,19 @@ test_expect_success 'failed `merge <branch>` does not crash' '
 	grep "^Merge branch ${SQ}G${SQ}$" .git/rebase-merge/message
 '
 
+test_expect_success 'fast-forward merge -c still rewords' '
+	git checkout -b fast-forward-merge-c H &&
+	(
+		set_fake_editor &&
+		FAKE_COMMIT_MESSAGE=edited \
+			GIT_SEQUENCE_EDITOR="echo merge -c H G >" \
+			git rebase -ir @^
+	) &&
+	echo edited >expected &&
+	git log --pretty=format:%B -1 >actual &&
+	test_cmp expected actual
+'
+
 test_expect_success 'with a branch tip that was cherry-picked already' '
 	git checkout -b already-upstream master &&
 	base="$(git rev-parse --verify HEAD)" &&
@@ -271,7 +284,7 @@ test_expect_success 'root commits' '
 	EOF
 	test_config sequence.editor \""$PWD"/replace-editor.sh\" &&
 	test_tick &&
-	git rebase -i --force --root -r &&
+	git rebase -i --force-rebase --root -r &&
 	test "Parsnip" = "$(git show -s --format=%an HEAD^)" &&
 	test $(git rev-parse second-root^0) != $(git rev-parse HEAD^) &&
 	test $(git rev-parse second-root:second-root.t) = \
@@ -364,7 +377,7 @@ test_expect_success 'octopus merges' '
 	test_cmp_rev HEAD $before &&
 
 	test_tick &&
-	git rebase -i --force -r HEAD^^ &&
+	git rebase -i --force-rebase -r HEAD^^ &&
 	test "Hank" = "$(git show -s --format=%an HEAD)" &&
 	test "$before" != $(git rev-parse HEAD) &&
 	test_cmp_graph HEAD^^.. <<-\EOF

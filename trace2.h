@@ -20,8 +20,26 @@ struct json_writer;
  */
 
 /*
+ * Initialize the TRACE2 clock and do nothing else, in particular
+ * no mallocs, no system inspection, and no environment inspection.
+ *
+ * This should be called at the very top of main() to capture the
+ * process start time.  This is intended to reduce chicken-n-egg
+ * bootstrap pressure.
+ *
+ * It is safe to call this more than once.  This allows capturing
+ * absolute startup costs on Windows which uses a little trickery
+ * to do setup work before common-main.c:main() is called.
+ *
+ * The main trace2_initialize_fl() may be called a little later
+ * after more infrastructure is established.
+ */
+void trace2_initialize_clock(void);
+
+/*
  * Initialize TRACE2 tracing facility if any of the builtin TRACE2
- * targets are enabled in the environment.  Emits a 'version' event.
+ * targets are enabled in the system config or the environment.
+ * Emits a 'version' event.
  *
  * Cleanup/Termination is handled automatically by a registered
  * atexit() routine.
@@ -108,10 +126,11 @@ void trace2_cmd_alias_fl(const char *file, int line, const char *alias,
  * Emit one or more 'def_param' events for "interesting" configuration
  * settings.
  *
- * The environment variable "GIT_TR2_CONFIG_PARAMS" can be set to a
- * list of patterns considered important.  For example:
- *
- *    GIT_TR2_CONFIG_PARAMS="core.*,remote.*.url"
+ * Use the TR2_SYSENV_CFG_PARAM setting to register a comma-separated
+ * list of patterns configured important.  For example:
+ *     git config --system trace2.configParams 'core.*,remote.*.url'
+ * or:
+ *     GIT_TRACE2_CONFIG_PARAMS=core.*,remote.*.url"
  *
  * Note: this routine does a read-only iteration on the config data
  * (using read_early_config()), so it must not be called until enough
@@ -238,7 +257,7 @@ void trace2_def_repo_fl(const char *file, int line, struct repository *repo);
  * on this thread.
  */
 void trace2_region_enter_fl(const char *file, int line, const char *category,
-			    const char *label, const struct repository *repo);
+			    const char *label, const struct repository *repo, ...);
 
 #define trace2_region_enter(category, label, repo) \
 	trace2_region_enter_fl(__FILE__, __LINE__, (category), (label), (repo))
@@ -278,7 +297,7 @@ void trace2_region_enter_printf(const char *category, const char *label,
  * in this nesting level.
  */
 void trace2_region_leave_fl(const char *file, int line, const char *category,
-			    const char *label, const struct repository *repo);
+			    const char *label, const struct repository *repo, ...);
 
 #define trace2_region_leave(category, label, repo) \
 	trace2_region_leave_fl(__FILE__, __LINE__, (category), (label), (repo))
@@ -372,13 +391,19 @@ void trace2_printf(const char *fmt, ...);
  * Optional platform-specific code to dump information about the
  * current and any parent process(es).  This is intended to allow
  * post-processors to know who spawned this git instance and anything
- * else the platform may be able to tell us about the current process.
+ * else that the platform may be able to tell us about the current process.
  */
+
+enum trace2_process_info_reason {
+	TRACE2_PROCESS_INFO_STARTUP,
+	TRACE2_PROCESS_INFO_EXIT,
+};
+
 #if defined(GIT_WINDOWS_NATIVE)
-void trace2_collect_process_info(void);
+void trace2_collect_process_info(enum trace2_process_info_reason reason);
 #else
-#define trace2_collect_process_info() \
-	do {                          \
+#define trace2_collect_process_info(reason) \
+	do {                                \
 	} while (0)
 #endif
 
